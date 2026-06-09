@@ -5,13 +5,12 @@ Regole:
   - Budget massimo 100 crediti
   - Max 2 giocatori della stessa squadra reale
   - Almeno 1 giocatore con status "O" (fuori lista)
-  - Max 1 giocatore fuori lista
   - Nome squadra obbligatorio
 """
 
 import logging
-import re
 import os
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -26,21 +25,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ─── CONFIGURAZIONE — lette da variabili d'ambiente Railway ───────────────────
-TELEGRAM_TOKEN  = os.environ["TELEGRAM_TOKEN"]
-ADMIN_CHAT_ID   = int(os.environ["ADMIN_CHAT_ID"])
+# ─── CONFIGURAZIONE ────────────────────────────────────────────────────────────
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]   # ← Sostituisci con il token di BotFather
+ADMIN_CHAT_ID = int(os.environ["ADMIN_CHAT_ID"])            # ← Sostituisci con il tuo Chat ID admin
 
-SQUAD_SIZE      = 7
-MAX_POR         = 1
-MAX_CAM         = 6
-BUDGET          = 100
-MAX_PER_SQUADRA = 2
+SQUAD_SIZE      = 7    # Totale giocatori
+MAX_POR         = 1    # Portieri massimi
+MAX_CAM         = 6    # Giocatori di campo massimi
+BUDGET          = 100  # Crediti massimi
+MAX_PER_SQUADRA = 2    # Max giocatori dalla stessa squadra reale
 
 # ─── STATI ─────────────────────────────────────────────────────────────────────
 INSERISCI_NOME, SELECTING = range(2)
 
 # ─── ESCAPE MARKDOWN ───────────────────────────────────────────────────────────
 def esc(text: str) -> str:
+    """Escape caratteri speciali Markdown v1 per testi forniti dagli utenti."""
     return re.sub(r"([_*`\[\]])", r"\\\1", str(text))
 
 # ─── UTILITIES ─────────────────────────────────────────────────────────────────
@@ -76,27 +76,33 @@ def toggle_player(context, player_id):
     if not p:
         return None
 
+    # Deseleziona sempre senza controlli
     if player_id in sel:
         sel.remove(player_id)
         context.user_data["selected"] = sel
         return None
 
+    # ── Controllo totale giocatori ──
     if len(sel) >= SQUAD_SIZE:
         return f"⛔ Hai già {SQUAD_SIZE} giocatori!"
 
+    # ── Controllo ruolo ──
     if p["ruolo"] == "POR" and count_ruolo(sel, "POR") >= MAX_POR:
         return f"⛔ Puoi avere solo {MAX_POR} portiere!"
     if p["ruolo"] == "CAM" and count_ruolo(sel, "CAM") >= MAX_CAM:
         return f"⛔ Puoi avere solo {MAX_CAM} giocatori di campo!"
 
+    # ── Controllo budget ──
     totale = calc_total(sel)
     if totale + p["quotazione"] > BUDGET:
         return f"⛔ Budget insufficiente! Rimangono {BUDGET - totale:.0f} crediti, questo ne costa {int(p['quotazione'])}."
 
+    # ── Controllo max 2 per squadra reale ──
     counts = count_per_squadra(sel)
     if counts.get(p["squadra"], 0) >= MAX_PER_SQUADRA:
         return f"⛔ Hai già {MAX_PER_SQUADRA} giocatori di {p['squadra']}!"
 
+    # ── Controllo max 1 fuori lista (O) ──
     if p["status"] == "O" and ha_giocatore_O(sel):
         return "⛔ Puoi selezionare solo 1 giocatore fuori lista ⭕!"
 
@@ -127,8 +133,6 @@ def build_keyboard(selected, page=0):
             label = f"💸 {badge}{p['nome']} [{p['ruolo']}] — {int(p['quotazione'])}⭐"
         elif counts.get(p["squadra"], 0) >= MAX_PER_SQUADRA:
             label = f"🚫 {badge}{p['nome']} [{p['ruolo']}] — {int(p['quotazione'])}⭐"
-        elif p["status"] == "O" and ha_giocatore_O(selected) and p["id"] not in selected:
-            label = f"🔒 ⭕ {p['nome']} [{p['ruolo']}] — {int(p['quotazione'])}⭐"
         else:
             label = f"{badge}{p['nome']} [{p['ruolo']}] — {int(p['quotazione'])}⭐"
         keyboard.append([InlineKeyboardButton(label, callback_data=f"sel_{p['id']}")])
@@ -221,7 +225,7 @@ async def ricevi_nome(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🧤 *1 portiere* \\+ ⚽ *6 giocatori di campo*\n"
         f"💰 Budget massimo: *{BUDGET} crediti*\n"
         f"🚫 Max *{MAX_PER_SQUADRA} giocatori* della stessa squadra\n"
-        f"⭕ Esattamente *1 giocatore fuori lista* \\(marcati ⭕\\)\n",
+        f"⭕ Almeno *1 giocatore fuori lista* \\(marcati ⭕\\)\n",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("🚀 Avvia selezione", callback_data="page_0")
@@ -274,16 +278,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sel = get_selected(context)
 
         if len(sel) != SQUAD_SIZE:
-            await query.answer(f"⚠️ Servono {SQUAD_SIZE} giocatori! (hai {len(sel)})", show_alert=True)
+            await query.answer(
+                f"⚠️ Servono {SQUAD_SIZE} giocatori! (hai {len(sel)})",
+                show_alert=True
+            )
             return SELECTING
+
         if count_ruolo(sel, "POR") != MAX_POR:
-            await query.answer(f"🧤 Devi selezionare esattamente {MAX_POR} portiere!", show_alert=True)
+            await query.answer(
+                f"🧤 Devi selezionare esattamente {MAX_POR} portiere!",
+                show_alert=True
+            )
             return SELECTING
+
         if count_ruolo(sel, "CAM") != MAX_CAM:
-            await query.answer(f"⚽ Devi selezionare esattamente {MAX_CAM} giocatori di campo!", show_alert=True)
+            await query.answer(
+                f"⚽ Devi selezionare esattamente {MAX_CAM} giocatori di campo!",
+                show_alert=True
+            )
             return SELECTING
+
         if not ha_giocatore_O(sel):
-            await query.answer("⭕ Devi includere 1 giocatore fuori lista (marcati con ⭕)!", show_alert=True)
+            await query.answer(
+                "⭕ Devi includere almeno 1 giocatore fuori lista (marcati con ⭕)!",
+                show_alert=True
+            )
             return SELECTING
 
         user = query.from_user
@@ -306,10 +325,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             players_data = [p for pid in sel for p in PLAYERS if p["id"] == pid]
             save_to_sheet(user, players_data, calc_total(sel), nome_squadra)
-            await context.bot.send_message(chat_id=user.id, text="✅ Squadra salvata su Google Sheets!")
+            await context.bot.send_message(
+                chat_id=user.id,
+                text="✅ Squadra salvata su Google Sheets!"
+            )
         except Exception as e:
             logger.error(f"Errore Google Sheets: {e}")
-            await context.bot.send_message(chat_id=user.id, text="⚠️ Errore Google Sheets. Contatta l'admin.")
+            await context.bot.send_message(
+                chat_id=user.id,
+                text="⚠️ Errore nel salvataggio su Google Sheets. Contatta l'admin."
+            )
+
+        # ── Messaggio finale con promemoria torneo ──
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=(
+                "🏆 *Grazie per aver partecipato al Fantatorneo delle Contrade!*\n\n"
+                "📅 *Appuntamento:* 15 Giugno 2026\n\n"
+                "📍 *Luogo:* Palatenda — Pofi\n\n"
+                "Non mancare! Segui tutti gli aggiornamenti sulla nostra pagina Instagram:\n"
+                "👉 https://www.instagram.com/torneocontradepofi2026?igsh=MWR6YTBzMjYzeWZpYQ=="
+            ),
+            parse_mode="Markdown",
+            disable_web_page_preview=False
+        )
 
         context.user_data["selected"] = []
         return ConversationHandler.END
@@ -320,8 +359,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Operazione annullata\\. Usa /start per ricominciare\\.", parse_mode="Markdown")
     return ConversationHandler.END
 
+# ─── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
@@ -332,6 +373,7 @@ def main():
         allow_reentry=True,
     )
     app.add_handler(conv)
+
     logger.info("🤖 FantaBot avviato!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
