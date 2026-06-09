@@ -25,6 +25,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Set utenti che hanno già inviato la squadra
+SQUADRE_INVIATE: set = set()
+
 # ─── CONFIGURAZIONE ────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]   # ← Sostituisci con il token di BotFather
 ADMIN_CHAT_ID = int(os.environ["ADMIN_CHAT_ID"])            # ← Sostituisci con il tuo Chat ID admin
@@ -198,6 +201,13 @@ def squad_summary(user, selected_ids, nome_squadra):
 
 # ─── HANDLERS ──────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id in SQUADRE_INVIATE:
+        await update.message.reply_text(
+            "⛔ *Hai già inviato la tua fantasquadra\\!*\n\n"
+            "Ogni fantallenatore può partecipare con una sola squadra.",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
     context.user_data["selected"] = []
     context.user_data["page"] = 0
     context.user_data["nome_squadra"] = ""
@@ -336,13 +346,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="⚠️ Errore nel salvataggio su Google Sheets. Contatta l'admin."
             )
 
-        # ── Messaggio finale con promemoria torneo ──
+        # ── Promemoria torneo ──
         await context.bot.send_message(
             chat_id=user.id,
             text=(
                 "🏆 *Grazie per aver partecipato al Fantatorneo delle Contrade!*\n\n"
                 "📅 *Appuntamento:* 15 Giugno 2026\n\n"
-                "📍 *Luogo:* Palatenda — Pofi\n\n"
+                "📍 *Luogo:* Palatenda \— Pofi\n\n"
                 "Non mancare! Segui tutti gli aggiornamenti sulla nostra pagina Instagram:\n"
                 "👉 https://www.instagram.com/torneocontradepofi2026?igsh=MWR6YTBzMjYzeWZpYQ=="
             ),
@@ -350,6 +360,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             disable_web_page_preview=False
         )
 
+        SQUADRE_INVIATE.add(user.id)
         context.user_data["selected"] = []
         return ConversationHandler.END
 
