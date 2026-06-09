@@ -6,7 +6,6 @@ Legge SPREADSHEET_ID e GOOGLE_CREDENTIALS dalle variabili d'ambiente.
 import gspread
 import os
 import json
-import tempfile
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
